@@ -16,6 +16,9 @@ def _get_suffix(limited_api, python_version, cpu):
             fail("Unsupported CPU: " + cpu)
         return ".cp{}-{}.{}".format(python_version, abi, "pyd")
 
+    if limited_api:
+        return ".abi3.so"
+
     if python_version == "system":
         python_version = SYSTEM_PYTHON_VERSION
         if int(python_version) < 38:
@@ -27,6 +30,7 @@ def _get_suffix(limited_api, python_version, cpu):
             "osx-x86_64": "darwin",
             "osx-aarch_64": "darwin",
             "linux-aarch_64": "aarch64-linux-gnu",
+            "aarch64": "aarch64-linux-gnu",
             "linux-x86_64": "x86_64-linux-gnu",
             "k8": "x86_64-linux-gnu",
         }
@@ -34,10 +38,8 @@ def _get_suffix(limited_api, python_version, cpu):
         return ".cpython-{}-{}.{}".format(
             python_version,
             abis[cpu],
-            "so" if limited_api else "abi3.so",
+            "so",
         )
-    elif limited_api:
-        return ".abi3.so"
 
     fail("Unsupported combination of flags")
 

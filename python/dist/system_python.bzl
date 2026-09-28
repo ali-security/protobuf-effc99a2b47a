@@ -158,14 +158,26 @@ def register_system_python():
     pass
 """
 
+def _get_python_command(repository_ctx):
+    python3 = repository_ctx.which("python3")
+    if python3:
+        return python3
+    return repository_ctx.which("python")
+
 def _get_python_version(repository_ctx):
+    python = _get_python_command(repository_ctx)
+    if not python:
+        return ["0", "0", "0"]
     py_program = "import sys; print(str(sys.version_info.major) + '.' + str(sys.version_info.minor) + '.' + str(sys.version_info.micro))"
-    result = repository_ctx.execute(["python3", "-c", py_program])
+    result = repository_ctx.execute([python, "-c", py_program])
     return (result.stdout).strip().split(".")
 
 def _get_python_path(repository_ctx):
+    python = _get_python_command(repository_ctx)
+    if not python:
+        return None
     py_program = "import sysconfig; print(sysconfig.get_config_var('%s'), end='')"
-    result = repository_ctx.execute(["python3", "-c", py_program % ("INCLUDEPY")])
+    result = repository_ctx.execute([python, "-c", py_program % ("INCLUDEPY")])
     if result.return_code != 0:
         return None
     return result.stdout
@@ -177,10 +189,6 @@ def _populate_package(ctx, path, python3, python_version):
         if int(python_version[idx]) < int(v):
             supported = False
             break
-    if "win" in ctx.os.name:
-        # buildifier: disable=print
-        print("WARNING: python is not supported on Windows")
-        supported = False
 
     build_file = _build_file.format(
         interpreter = python3,
@@ -220,7 +228,7 @@ def _populate_empty_package(ctx):
 
 def _system_python_impl(repository_ctx):
     path = _get_python_path(repository_ctx)
-    python3 = repository_ctx.which("python3")
+    python3 = _get_python_command(repository_ctx)
     python_version = _get_python_version(repository_ctx)
 
     if path and python_version[0] == "3":

@@ -1,13 +1,6 @@
 name: Auto-generate stale checked-in files
 
 on:
-  push:
-    branches:
-      - main
-      - '[0-9]+.x'
-      # The 21.x branch predates support for auto-generation, so we make sure
-      # to exclude it.
-      - '!21.x'
   workflow_dispatch:
 
 permissions: {}

@@ -1,0 +1,234 @@
+name: Build Python Wheels
+
+on:
+  workflow_dispatch:
+
+jobs:
+  linux-x86_64-wheel:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build in manylinux2014_x86_64
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/protobuf -w /protobuf \
+            quay.io/pypa/manylinux2014_x86_64:2023-01-01-bd00b6b bash -c '
+              source /opt/rh/devtoolset-10/enable
+              export PATH=/opt/python/cp38-cp38/bin:$PATH
+              ln -sf /opt/python/cp38-cp38/bin/python3 /usr/bin/python3
+              curl -fsSL https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 \
+                -o /usr/local/bin/bazel && chmod +x /usr/local/bin/bazel
+              pip install setuptools
+              # devtoolset-10 gcc flags the deprecated Arena::CreateMessage inside its own
+              # template body; with build_defs/cpp_opts.bzl -Werror that kills the build.
+              # Silence only that diagnostic (no codegen change); upstream builds with clang.
+              echo "build --copt=-Wno-deprecated-declarations --host_copt=-Wno-deprecated-declarations" >> ~/.bazelrc
+              bazel test //python/...
+              # -c opt matches upstreams release build; fastbuild ships an unoptimized extension.
+              bazel build //python/dist:binary_wheel -c opt
+              mkdir -p wheels
+              for f in bazel-bin/python/dist/*-linux_x86_64.whl; do
+                cp "$f" wheels/$(basename "$f" | sed "s/linux_x86_64/manylinux2014_x86_64/")
+              done
+            '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64-wheel
+          path: wheels/
+
+  linux-aarch64-wheel:
+    runs-on: ubuntu-22.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build in manylinux2014_aarch64
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v ${{ github.workspace }}:/protobuf -w /protobuf \
+            quay.io/pypa/manylinux2014_aarch64:2023-01-01-bd00b6b bash -c '
+              source /opt/rh/devtoolset-10/enable
+              export PATH=/opt/python/cp38-cp38/bin:$PATH
+              ln -sf /opt/python/cp38-cp38/bin/python3 /usr/bin/python3
+              curl -fsSL https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-arm64 \
+                -o /usr/local/bin/bazel && chmod +x /usr/local/bin/bazel
+              sed -i '199,227d' WORKSPACE # This is because the cargo aarch64 requires glibc 2.18 but this has 2.17. Since its not needed I remove it here.
+              pip install setuptools
+              # devtoolset-10 gcc flags the deprecated Arena::CreateMessage inside its own
+              # template body; with build_defs/cpp_opts.bzl -Werror that kills the build.
+              # Silence only that diagnostic (no codegen change); upstream builds with clang.
+              echo "build --copt=-Wno-deprecated-declarations --host_copt=-Wno-deprecated-declarations" >> ~/.bazelrc
+              bazel test //python/...
+              # -c opt turns on the devtoolset defaults -fstack-protector and
+              # _FORTIFY_SOURCE. On aarch64 the guard symbol __stack_chk_guard is
+              # exported by the loader, so the link then records a NEEDED entry on
+              # ld-linux-aarch64.so.1 that the public wheel does not carry. Upstream
+              # builds with clang and has neither symbol, so turn both off here.
+              bazel build //python/dist:binary_wheel -c opt --copt=-fno-stack-protector --copt=-U_FORTIFY_SOURCE
+              mkdir -p wheels
+              for f in bazel-bin/python/dist/*-linux_aarch64.whl; do
+                cp "$f" wheels/$(basename "$f" | sed "s/linux_aarch64/manylinux2014_aarch64/")
+              done
+            '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-aarch64-wheel
+          path: wheels/
+
+  macos-wheel:
+    runs-on: macos-15-intel
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: MatteoH2O1999/setup-python@v6
+        with:
+          python-version: "3.8"
+      - name: Restore libarclite for old deployment targets
+        run: |
+          XCODE_PATH=$(xcode-select -p)
+          ARC_DIR="${XCODE_PATH}/Toolchains/XcodeDefault.xctoolchain/usr/lib/arc"
+          sudo mkdir -p "$ARC_DIR"
+          rm -rf /tmp/libarclite
+          git clone https://github.com/kamyarelyasi/Libarclite-Files.git /tmp/libarclite
+          sudo cp -R /tmp/libarclite/. "$ARC_DIR"/
+      - name: Build universal2 wheel
+        run: |
+          pip install setuptools
+          # bazel test //python/...
+          brew install bazelisk llvm
+          LLVM_PREFIX="$(brew --prefix llvm)"
+          # toolchain/cc_toolchain_config.bzl hardcodes host paths for every
+          # //toolchain:clang_suite toolchain: the gcc tool at
+          # /usr/local/bin/clang, the ar tool at /usr/local/bin/llvm-ar, and the
+          # builtin include dir /usr/local/lib/clang. Stage them from brew llvm.
+          sudo mkdir -p /usr/local/bin /usr/local/lib
+          sudo ln -sf "$LLVM_PREFIX/bin/clang" /usr/local/bin/clang
+          sudo ln -sf "$LLVM_PREFIX/bin/llvm-ar" /usr/local/bin/llvm-ar
+          sudo ln -sfn "$(dirname "$("$LLVM_PREFIX/bin/clang" -print-resource-dir)")" /usr/local/lib/clang
+          # python/dist/dist.bzl fuses the two arch slices with this exact path.
+          sudo ln -sf "$LLVM_PREFIX/bin/llvm-lipo" /usr/local/bin/llvm-lipo
+          # The osx-aarch_64 / osx-x86_64 configs compile and link against a
+          # sysroot at /usr/local/tools/xcode_14_0/macosx and pass -B/usr/local/tools, so
+          # stage the runner SDK and the linker at those paths.
+          sudo mkdir -p /usr/local/tools/xcode_14_0
+          sudo ln -sfn "$(xcrun --show-sdk-path)" /usr/local/tools/xcode_14_0/macosx
+          sudo ln -sf "$(xcrun -f ld)" /usr/local/tools/ld
+          test -e /usr/local/bin/clang
+          test -e /usr/local/bin/llvm-ar
+          test -e /usr/local/lib/clang
+          test -e /usr/local/bin/llvm-lipo
+          test -e /usr/local/tools/xcode_14_0/macosx/usr/include/c++/v1
+          test -e /usr/local/tools/xcode_14_0/macosx/usr/include
+          test -e /usr/local/tools/xcode_14_0/macosx/System/Library/Frameworks
+          test -e /usr/local/tools/ld
+          bazel sync --configure
+          bazel --bazelrc=toolchain/toolchains.bazelrc build //python/dist:dist_osx_universal2 \
+            --config=cross_config \
+            -c opt \
+            --cpu=osx-universal2
+          mkdir -p wheels
+          # The py_dist transition writes the wheel to a transitioned output directory, not under bazel-bin.
+          find -L bazel-out -name 'protobuf-*-macosx_10_9_universal2.whl' -exec cp {} wheels/ \;
+          test "$(ls wheels | wc -l)" -eq 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-wheel
+          path: wheels/
+
+  windows-wheels:
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86
+            bazel_cpu: win32
+            python: "3.8"
+            python_version: "38"
+            limited_api: "False"
+          - arch: x64
+            bazel_cpu: win64
+            python: "3.8"
+            python_version: "38"
+            limited_api: "False"
+          - arch: x86
+            bazel_cpu: win32
+            python: "3.9"
+            python_version: "39"
+            limited_api: "False"
+          - arch: x64
+            bazel_cpu: win64
+            python: "3.9"
+            python_version: "39"
+            limited_api: "False"
+          - arch: x86
+            bazel_cpu: win32
+            python: "3.10"
+            python_version: "310"
+            limited_api: "True"
+          - arch: x64
+            bazel_cpu: win64
+            python: "3.10"
+            python_version: "310"
+            limited_api: "True"
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cross-compile Windows wheel in debian:buster
+        run: |
+          docker run --rm \
+            -e BAZEL_CPU=${{ matrix.bazel_cpu }} \
+            -v ${{ github.workspace }}:/protobuf -w /protobuf \
+            debian:buster bash -c '
+              set -e
+              printf "%s\n" "deb http://archive.debian.org/debian buster main" \
+                "deb http://archive.debian.org/debian-security buster/updates main" \
+                > /etc/apt/sources.list
+              echo "Acquire::Check-Valid-Until \"false\";" > /etc/apt/apt.conf.d/99no-check-valid-until
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                ca-certificates curl git unzip zip python3 python3-pip python3-dev \
+                clang llvm g++ g++-mingw-w64-i686 g++-mingw-w64-x86-64
+              curl -fsSL https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 \
+                -o /usr/local/bin/bazel && chmod +x /usr/local/bin/bazel
+              python3 -m pip install setuptools
+              ln -sf $(command -v clang) /usr/local/bin/clang
+              ln -sf $(command -v llvm-ar) /usr/local/bin/llvm-ar
+              ln -sfn $(dirname $(clang -print-resource-dir)) /usr/local/lib/clang
+              # -c opt defines NDEBUG, so assert() compiles away and the
+              # libmingwex wassert.o object (which calls MessageBoxW) is never
+              # linked. Without it the .pyd imports USER32.dll, which the
+              # public wheel does not. Keep this comment apostrophe-free: it
+              # sits inside a single-quoted docker bash -c string.
+              bazel --bazelrc=toolchain/toolchains.bazelrc build //python/dist:binary_wheel \
+                -c opt \
+                --config="$BAZEL_CPU" \
+                --//python:python_version=${{ matrix.python_version }} \
+                --//python:limited_api=${{ matrix.limited_api }}
+              mkdir -p wheels && cp bazel-bin/python/dist/*.whl wheels/
+            '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}-cp${{ matrix.python_version }}-wheel
+          path: wheels/
+
+  pure-python-wheel:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: MatteoH2O1999/setup-python@v6
+        with:
+          python-version: "3.8"
+      - name: Build pure python wheel
+        run: |
+          sudo curl -fsSL https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 \
+            -o /usr/local/bin/bazel && sudo chmod +x /usr/local/bin/bazel
+          pip install setuptools
+          bazel test //python/...
+          bazel build //python/dist:pure_python_wheel && bazel build //python/dist:source_wheel
+          mkdir -p wheels && cp bazel-bin/python/dist/protobuf-*-py3-none-any.whl wheels/ && cp bazel-bin/python/dist/protobuf-*.tar.gz wheels/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pure-python-wheel
+          path: wheels/
