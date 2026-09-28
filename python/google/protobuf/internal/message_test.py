@@ -29,6 +29,7 @@ import warnings
 cmp = lambda x, y: (x > y) - (x < y)
 
 from google.protobuf.internal import api_implementation # pylint: disable=g-import-not-at-top
+from google.protobuf.internal import decoder
 from google.protobuf.internal import encoder
 from google.protobuf.internal import more_extensions_pb2
 from google.protobuf.internal import more_messages_pb2
@@ -2713,8 +2714,6 @@ class PackedFieldTest(unittest.TestCase):
     self.assertEqual(golden_data, message.SerializeToString())
 
 
-@unittest.skipIf(api_implementation.Type() == 'python',
-                 'explicit tests of the C++ implementation')
 @testing_refleaks.TestCase
 class OversizeProtosTest(unittest.TestCase):
 
@@ -2731,16 +2730,23 @@ class OversizeProtosTest(unittest.TestCase):
     msg.ParseFromString(self.GenerateNestedProto(100))
 
   def testAssertOversizeProto(self):
-    api_implementation._c_module.SetAllowOversizeProtos(False)
+    if api_implementation.Type() != 'python':
+      api_implementation._c_module.SetAllowOversizeProtos(False)
     msg = unittest_pb2.TestRecursiveMessage()
     with self.assertRaises(message.DecodeError) as context:
       msg.ParseFromString(self.GenerateNestedProto(101))
     self.assertIn('Error parsing message', str(context.exception))
 
   def testSucceedOversizeProto(self):
-    api_implementation._c_module.SetAllowOversizeProtos(True)
+
+    if api_implementation.Type() == 'python':
+      decoder.SetRecursionLimit(310)
+    else:
+      api_implementation._c_module.SetAllowOversizeProtos(True)
+
     msg = unittest_pb2.TestRecursiveMessage()
     msg.ParseFromString(self.GenerateNestedProto(101))
+    decoder.SetRecursionLimit(decoder.DEFAULT_RECURSION_LIMIT)
 
 
 if __name__ == '__main__':

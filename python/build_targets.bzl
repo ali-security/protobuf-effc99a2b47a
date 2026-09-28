@@ -320,6 +320,11 @@ def build_targets(name):
     )
 
     internal_py_test(
+        name = "decoder_test",
+        srcs = ["google/protobuf/internal/decoder_test.py"],
+    )
+
+    internal_py_test(
         name = "descriptor_database_test",
         srcs = ["google/protobuf/internal/descriptor_database_test.py"],
     )

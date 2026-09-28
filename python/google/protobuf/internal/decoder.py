@@ -172,7 +172,10 @@ def _SimpleDecoder(wire_type, decode_value):
                       clear_if_default=False):
     if is_packed:
       local_DecodeVarint = _DecodeVarint
-      def DecodePackedField(buffer, pos, end, message, field_dict):
+      def DecodePackedField(
+          buffer, pos, end, message, field_dict, current_depth=0
+      ):
+        del current_depth  # unused
         value = field_dict.get(key)
         if value is None:
           value = field_dict.setdefault(key, new_default(message))
@@ -187,11 +190,15 @@ def _SimpleDecoder(wire_type, decode_value):
           del value[-1]   # Discard corrupt value.
           raise _DecodeError('Packed element was truncated.')
         return pos
+
       return DecodePackedField
     elif is_repeated:
       tag_bytes = encoder.TagBytes(field_number, wire_type)
       tag_len = len(tag_bytes)
-      def DecodeRepeatedField(buffer, pos, end, message, field_dict):
+      def DecodeRepeatedField(
+          buffer, pos, end, message, field_dict, current_depth=0
+      ):
+        del current_depth  # unused
         value = field_dict.get(key)
         if value is None:
           value = field_dict.setdefault(key, new_default(message))
@@ -206,9 +213,12 @@ def _SimpleDecoder(wire_type, decode_value):
             if new_pos > end:
               raise _DecodeError('Truncated message.')
             return new_pos
+
       return DecodeRepeatedField
     else:
-      def DecodeField(buffer, pos, end, message, field_dict):
+
+      def DecodeField(buffer, pos, end, message, field_dict, current_depth=0):
+        del current_depth  # unused
         (new_value, pos) = decode_value(buffer, pos)
         if pos > end:
           raise _DecodeError('Truncated message.')
@@ -217,6 +227,7 @@ def _SimpleDecoder(wire_type, decode_value):
         else:
           field_dict[key] = new_value
         return pos
+
       return DecodeField
 
   return SpecificDecoder
@@ -352,7 +363,9 @@ def EnumDecoder(field_number, is_repeated, is_packed, key, new_default,
   enum_type = key.enum_type
   if is_packed:
     local_DecodeVarint = _DecodeVarint
-    def DecodePackedField(buffer, pos, end, message, field_dict):
+    def DecodePackedField(
+        buffer, pos, end, message, field_dict, current_depth=0
+    ):
       """Decode serialized packed enum to its value and a new position.
 
       Args:
@@ -365,6 +378,7 @@ def EnumDecoder(field_number, is_repeated, is_packed, key, new_default,
       Returns:
         int, new position in serialized data.
       """
+      del current_depth  # unused
       value = field_dict.get(key)
       if value is None:
         value = field_dict.setdefault(key, new_default(message))
@@ -395,11 +409,14 @@ def EnumDecoder(field_number, is_repeated, is_packed, key, new_default,
           # pylint: enable=protected-access
         raise _DecodeError('Packed element was truncated.')
       return pos
+
     return DecodePackedField
   elif is_repeated:
     tag_bytes = encoder.TagBytes(field_number, wire_format.WIRETYPE_VARINT)
     tag_len = len(tag_bytes)
-    def DecodeRepeatedField(buffer, pos, end, message, field_dict):
+    def DecodeRepeatedField(
+        buffer, pos, end, message, field_dict, current_depth=0
+    ):
       """Decode serialized repeated enum to its value and a new position.
 
       Args:
@@ -412,6 +429,7 @@ def EnumDecoder(field_number, is_repeated, is_packed, key, new_default,
       Returns:
         int, new position in serialized data.
       """
+      del current_depth  # unused
       value = field_dict.get(key)
       if value is None:
         value = field_dict.setdefault(key, new_default(message))
@@ -434,9 +452,11 @@ def EnumDecoder(field_number, is_repeated, is_packed, key, new_default,
           if new_pos > end:
             raise _DecodeError('Truncated message.')
           return new_pos
+
     return DecodeRepeatedField
   else:
-    def DecodeField(buffer, pos, end, message, field_dict):
+
+    def DecodeField(buffer, pos, end, message, field_dict, current_depth=0):
       """Decode serialized repeated enum to its value and a new position.
 
       Args:
@@ -449,6 +469,7 @@ def EnumDecoder(field_number, is_repeated, is_packed, key, new_default,
       Returns:
         int, new position in serialized data.
       """
+      del current_depth  # unused
       value_start_pos = pos
       (enum_value, pos) = _DecodeSignedVarint32(buffer, pos)
       if pos > end:
@@ -526,7 +547,10 @@ def StringDecoder(field_number, is_repeated, is_packed, key, new_default,
     tag_bytes = encoder.TagBytes(field_number,
                                  wire_format.WIRETYPE_LENGTH_DELIMITED)
     tag_len = len(tag_bytes)
-    def DecodeRepeatedField(buffer, pos, end, message, field_dict):
+    def DecodeRepeatedField(
+        buffer, pos, end, message, field_dict, current_depth=0
+    ):
+      del current_depth  # unused
       value = field_dict.get(key)
       if value is None:
         value = field_dict.setdefault(key, new_default(message))
@@ -541,9 +565,12 @@ def StringDecoder(field_number, is_repeated, is_packed, key, new_default,
         if buffer[new_pos:pos] != tag_bytes or new_pos == end:
           # Prediction failed.  Return.
           return new_pos
+
     return DecodeRepeatedField
   else:
-    def DecodeField(buffer, pos, end, message, field_dict):
+
+    def DecodeField(buffer, pos, end, message, field_dict, current_depth=0):
+      del current_depth  # unused
       (size, pos) = local_DecodeVarint(buffer, pos)
       new_pos = pos + size
       if new_pos > end:
@@ -553,6 +580,7 @@ def StringDecoder(field_number, is_repeated, is_packed, key, new_default,
       else:
         field_dict[key] = _ConvertToUnicode(buffer[pos:new_pos])
       return new_pos
+
     return DecodeField
 
 
@@ -567,7 +595,10 @@ def BytesDecoder(field_number, is_repeated, is_packed, key, new_default,
     tag_bytes = encoder.TagBytes(field_number,
                                  wire_format.WIRETYPE_LENGTH_DELIMITED)
     tag_len = len(tag_bytes)
-    def DecodeRepeatedField(buffer, pos, end, message, field_dict):
+    def DecodeRepeatedField(
+        buffer, pos, end, message, field_dict, current_depth=0
+    ):
+      del current_depth  # unused
       value = field_dict.get(key)
       if value is None:
         value = field_dict.setdefault(key, new_default(message))
@@ -582,9 +613,12 @@ def BytesDecoder(field_number, is_repeated, is_packed, key, new_default,
         if buffer[new_pos:pos] != tag_bytes or new_pos == end:
           # Prediction failed.  Return.
           return new_pos
+
     return DecodeRepeatedField
   else:
-    def DecodeField(buffer, pos, end, message, field_dict):
+
+    def DecodeField(buffer, pos, end, message, field_dict, current_depth=0):
+      del current_depth  # unused
       (size, pos) = local_DecodeVarint(buffer, pos)
       new_pos = pos + size
       if new_pos > end:
@@ -594,6 +628,7 @@ def BytesDecoder(field_number, is_repeated, is_packed, key, new_default,
       else:
         field_dict[key] = buffer[pos:new_pos].tobytes()
       return new_pos
+
     return DecodeField
 
 
@@ -609,7 +644,9 @@ def GroupDecoder(field_number, is_repeated, is_packed, key, new_default):
     tag_bytes = encoder.TagBytes(field_number,
                                  wire_format.WIRETYPE_START_GROUP)
     tag_len = len(tag_bytes)
-    def DecodeRepeatedField(buffer, pos, end, message, field_dict):
+    def DecodeRepeatedField(
+        buffer, pos, end, message, field_dict, current_depth=0
+    ):
       value = field_dict.get(key)
       if value is None:
         value = field_dict.setdefault(key, new_default(message))
@@ -618,7 +655,13 @@ def GroupDecoder(field_number, is_repeated, is_packed, key, new_default):
         if value is None:
           value = field_dict.setdefault(key, new_default(message))
         # Read sub-message.
-        pos = value.add()._InternalParse(buffer, pos, end)
+        current_depth += 1
+        if current_depth > _recursion_limit:
+          raise _DecodeError(
+              'Error parsing message: too many levels of nesting.'
+          )
+        pos = value.add()._InternalParse(buffer, pos, end, current_depth)
+        current_depth -= 1
         # Read end tag.
         new_pos = pos+end_tag_len
         if buffer[pos:new_pos] != end_tag_bytes or new_pos > end:
@@ -628,19 +671,26 @@ def GroupDecoder(field_number, is_repeated, is_packed, key, new_default):
         if buffer[new_pos:pos] != tag_bytes or new_pos == end:
           # Prediction failed.  Return.
           return new_pos
+
     return DecodeRepeatedField
   else:
-    def DecodeField(buffer, pos, end, message, field_dict):
+
+    def DecodeField(buffer, pos, end, message, field_dict, current_depth=0):
       value = field_dict.get(key)
       if value is None:
         value = field_dict.setdefault(key, new_default(message))
       # Read sub-message.
-      pos = value._InternalParse(buffer, pos, end)
+      current_depth += 1
+      if current_depth > _recursion_limit:
+        raise _DecodeError('Error parsing message: too many levels of nesting.')
+      pos = value._InternalParse(buffer, pos, end, current_depth)
+      current_depth -= 1
       # Read end tag.
       new_pos = pos+end_tag_len
       if buffer[pos:new_pos] != end_tag_bytes or new_pos > end:
         raise _DecodeError('Missing group end tag.')
       return new_pos
+
     return DecodeField
 
 
@@ -654,7 +704,9 @@ def MessageDecoder(field_number, is_repeated, is_packed, key, new_default):
     tag_bytes = encoder.TagBytes(field_number,
                                  wire_format.WIRETYPE_LENGTH_DELIMITED)
     tag_len = len(tag_bytes)
-    def DecodeRepeatedField(buffer, pos, end, message, field_dict):
+    def DecodeRepeatedField(
+        buffer, pos, end, message, field_dict, current_depth=0
+    ):
       value = field_dict.get(key)
       if value is None:
         value = field_dict.setdefault(key, new_default(message))
@@ -665,18 +717,29 @@ def MessageDecoder(field_number, is_repeated, is_packed, key, new_default):
         if new_pos > end:
           raise _DecodeError('Truncated message.')
         # Read sub-message.
-        if value.add()._InternalParse(buffer, pos, new_pos) != new_pos:
+        current_depth += 1
+        if current_depth > _recursion_limit:
+          raise _DecodeError(
+              'Error parsing message: too many levels of nesting.'
+          )
+        if (
+            value.add()._InternalParse(buffer, pos, new_pos, current_depth)
+            != new_pos
+        ):
           # The only reason _InternalParse would return early is if it
           # encountered an end-group tag.
           raise _DecodeError('Unexpected end-group tag.')
+        current_depth -= 1
         # Predict that the next tag is another copy of the same repeated field.
         pos = new_pos + tag_len
         if buffer[new_pos:pos] != tag_bytes or new_pos == end:
           # Prediction failed.  Return.
           return new_pos
+
     return DecodeRepeatedField
   else:
-    def DecodeField(buffer, pos, end, message, field_dict):
+
+    def DecodeField(buffer, pos, end, message, field_dict, current_depth=0):
       value = field_dict.get(key)
       if value is None:
         value = field_dict.setdefault(key, new_default(message))
@@ -686,11 +749,16 @@ def MessageDecoder(field_number, is_repeated, is_packed, key, new_default):
       if new_pos > end:
         raise _DecodeError('Truncated message.')
       # Read sub-message.
-      if value._InternalParse(buffer, pos, new_pos) != new_pos:
+      current_depth += 1
+      if current_depth > _recursion_limit:
+        raise _DecodeError('Error parsing message: too many levels of nesting.')
+      if value._InternalParse(buffer, pos, new_pos, current_depth) != new_pos:
         # The only reason _InternalParse would return early is if it encountered
         # an end-group tag.
         raise _DecodeError('Unexpected end-group tag.')
+      current_depth -= 1
       return new_pos
+
     return DecodeField
 
 
@@ -720,7 +788,7 @@ def MessageSetItemDecoder(descriptor):
   local_DecodeVarint = _DecodeVarint
   local_SkipField = SkipField
 
-  def DecodeItem(buffer, pos, end, message, field_dict):
+  def DecodeItem(buffer, pos, end, message, field_dict, current_depth=0):
     """Decode serialized message set to its value and new position.
 
     Args:
@@ -750,6 +818,12 @@ def MessageSetItemDecoder(descriptor):
       elif tag_bytes == item_end_tag_bytes:
         break
       else:
+        (tag, _) = local_DecodeVarint(tag_bytes, 0)
+        _, wire_type = wire_format.UnpackTag(tag)
+        if wire_type == wire_format.WIRETYPE_START_GROUP:
+          # Run nested unknown groups through the depth-limited unknown field
+          # decoder first, so they cannot exhaust the stack in SkipField.
+          _DecodeUnknownField(buffer, pos, wire_type)
         pos = SkipField(buffer, pos, end, tag_bytes)
         if pos == -1:
           raise _DecodeError('Missing group end tag.')
@@ -772,10 +846,19 @@ def MessageSetItemDecoder(descriptor):
           message_factory.GetMessageClass(message_type)
         value = field_dict.setdefault(
             extension, message_type._concrete_class())
-      if value._InternalParse(buffer, message_start,message_end) != message_end:
+      current_depth += 1
+      if current_depth > _recursion_limit:
+        raise _DecodeError('Error parsing message: too many levels of nesting.')
+      if (
+          value._InternalParse(
+              buffer, message_start, message_end, current_depth
+          )
+          != message_end
+      ):
         # The only reason _InternalParse would return early is if it encountered
         # an end-group tag.
         raise _DecodeError('Unexpected end-group tag.')
+      current_depth -= 1
     else:
       if not message._unknown_fields:
         message._unknown_fields = []
@@ -839,7 +922,7 @@ def MapDecoder(field_descriptor, new_default, is_message_map):
   # Can't read _concrete_class yet; might not be initialized.
   message_type = field_descriptor.message_type
 
-  def DecodeMap(buffer, pos, end, message, field_dict):
+  def DecodeMap(buffer, pos, end, message, field_dict, current_depth=0):
     submsg = message_type._concrete_class()
     value = field_dict.get(key)
     if value is None:
@@ -852,10 +935,14 @@ def MapDecoder(field_descriptor, new_default, is_message_map):
         raise _DecodeError('Truncated message.')
       # Read sub-message.
       submsg.Clear()
-      if submsg._InternalParse(buffer, pos, new_pos) != new_pos:
+      current_depth += 1
+      if current_depth > _recursion_limit:
+        raise _DecodeError('Error parsing message: too many levels of nesting.')
+      if submsg._InternalParse(buffer, pos, new_pos, current_depth) != new_pos:
         # The only reason _InternalParse would return early is if it
         # encountered an end-group tag.
         raise _DecodeError('Unexpected end-group tag.')
+      current_depth -= 1
 
       if is_message_map:
         value[submsg.key].CopyFrom(submsg.value)
@@ -922,7 +1009,16 @@ def _SkipGroup(buffer, pos, end):
     pos = new_pos
 
 
-def _DecodeUnknownFieldSet(buffer, pos, end_pos=None):
+DEFAULT_RECURSION_LIMIT = 100
+_recursion_limit = DEFAULT_RECURSION_LIMIT
+
+
+def SetRecursionLimit(new_limit):
+  global _recursion_limit
+  _recursion_limit = new_limit
+
+
+def _DecodeUnknownFieldSet(buffer, pos, end_pos=None, current_depth=0):
   """Decode UnknownFieldSet.  Returns the UnknownFieldSet and new position."""
 
   unknown_field_set = containers.UnknownFieldSet()
@@ -932,14 +1028,16 @@ def _DecodeUnknownFieldSet(buffer, pos, end_pos=None):
     field_number, wire_type = wire_format.UnpackTag(tag)
     if wire_type == wire_format.WIRETYPE_END_GROUP:
       break
-    (data, pos) = _DecodeUnknownField(buffer, pos, wire_type)
+    (data, pos) = _DecodeUnknownField(buffer, pos, wire_type, current_depth)
     # pylint: disable=protected-access
     unknown_field_set._add(field_number, wire_type, data)
 
   return (unknown_field_set, pos)
 
 
-def _DecodeUnknownField(buffer, pos, wire_type):
+def _DecodeUnknownField(
+    buffer, pos, wire_type, current_depth=0
+):
   """Decode a unknown field.  Returns the UnknownField and new position."""
 
   if wire_type == wire_format.WIRETYPE_VARINT:
@@ -953,7 +1051,11 @@ def _DecodeUnknownField(buffer, pos, wire_type):
     data = buffer[pos:pos+size].tobytes()
     pos += size
   elif wire_type == wire_format.WIRETYPE_START_GROUP:
-    (data, pos) = _DecodeUnknownFieldSet(buffer, pos)
+    current_depth += 1
+    if current_depth >= _recursion_limit:
+      raise _DecodeError('Error parsing message: too many levels of nesting.')
+    data, pos = _DecodeUnknownFieldSet(buffer, pos, None, current_depth)
+    current_depth -= 1
   elif wire_type == wire_format.WIRETYPE_END_GROUP:
     return (0, -1)
   else:
